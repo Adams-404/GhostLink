@@ -111,8 +111,7 @@ def cmd_mac_gen(args, console: Console) -> int:
 
 
 def cmd_mac_spoof(args, console: Console) -> int:
-    target = _target(args)
-    iface = args.iface or target.iface
+    iface = args.iface or detect_target().iface
     mac = args.mac if args.mac and args.mac != "random" else macmod.random_mac(vendor=args.vendor)
     if not args.apply:
         console.info("dry-run — pass --apply to execute (uses sudo -n, non-interactive)")
@@ -133,8 +132,7 @@ def cmd_mac_spoof(args, console: Console) -> int:
 
 
 def cmd_mac_restore(args, console: Console) -> int:
-    target = _target(args)
-    iface = args.iface or target.iface
+    iface = args.iface or detect_target().iface
     result = macmod.restore(iface)
     console.ok(f"restored {result['iface']} to {result['restored_to']} (verified={result['verified']})")
     return 0
