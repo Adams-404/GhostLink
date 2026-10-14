@@ -205,18 +205,20 @@ def write(out_base: str, target: Target, results: dict) -> tuple[str, str]:
 
 
 def render_from_json(json_path: str, out_md: str) -> str:
+    """Re-render a markdown report from a saved run's JSON."""
     data = json.loads(Path(json_path).read_text(encoding="utf-8"))
     results = data["results"]
-
-    class _StubTarget:
-        pass
-
-    target = _StubTarget()
-    for key, value in results.get("recon", {}).get("target", {}).items():
-        setattr(target, key, value)
-    for prop in ("iface", "address", "prefix", "gateway", "resolvers", "mac", "network"):
-        if not hasattr(target, prop):
-            setattr(target, prop, "?")
+    stored = results.get("recon", {}).get("target", {})
+    target = Target(
+        iface=stored.get("iface", "?"),
+        address=stored.get("address", "?"),
+        prefix=int(stored.get("prefix") or 24),
+        gateway=stored.get("gateway"),
+        resolvers=stored.get("resolvers", []),
+        network=stored.get("network", ""),
+        wireless=bool(stored.get("wireless", False)),
+        mac=stored.get("mac", ""),
+    )
     markdown = render_markdown(target, results)
     Path(out_md).write_text(markdown, encoding="utf-8")
     return out_md
