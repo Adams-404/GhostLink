@@ -122,8 +122,6 @@ def run(portal_url: str | None = None, concurrency: int = 24, timeout: float = 3
 
 
 def render(data: dict, console) -> None:
-    from .output import Console as _Console  # noqa: F401  (typing sugar)
-
     console.section("Walled garden")
     if data["portal_url"]:
         console.kv("Portal page", data["portal_url"])
