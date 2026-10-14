@@ -1,12 +1,13 @@
-"""MAC identity tooling: inventory, neighbor discovery, MAC generation.
-
-The spoof engine (backup/apply/restore) is layered on top in a later stage.
-"""
+"""MAC identity tooling: inventory, neighbor discovery, MAC generation,
+and the spoof engine (dry-run / sudo apply / backup / restore)."""
 
 from __future__ import annotations
 
+import os
 import re
 import secrets
+import subprocess
+from pathlib import Path
 
 from .config import ip_json, is_wireless
 
@@ -93,3 +94,112 @@ def neighbor_counts() -> dict[str, int]:
     for entry in neighbors():
         counts[entry["state"]] = counts.get(entry["state"], 0) + 1
     return counts
+
+
+# ---------------------------------------------------------------------------
+# Spoof engine
+# ---------------------------------------------------------------------------
+
+
+def _cache_dir() -> Path:
+    path = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "ghostlink"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def backup_mac(iface: str, mac: str) -> None:
+    """Persist the pre-spoof MAC so `restore` can always undo a spoof."""
+    (_cache_dir() / f"{iface}.orig.mac").write_text(mac, encoding="utf-8")
+
+
+def read_backup(iface: str) -> str | None:
+    path = _cache_dir() / f"{iface}.orig.mac"
+    if not path.exists():
+        return None
+    mac = path.read_text(encoding="utf-8").strip()
+    return normalize_mac(mac) if mac else None
+
+
+def clear_backup(iface: str) -> None:
+    (_cache_dir() / f"{iface}.orig.mac").unlink(missing_ok=True)
+
+
+def default_route_iface() -> str | None:
+    from .config import default_route
+
+    try:
+        return default_route().get("dev")
+    except Exception:  # noqa: BLE001 - no route is a valid answer, not an error
+        return None
+
+
+def current_mac(iface: str) -> str:
+    from .config import interface_mac
+
+    return interface_mac(iface).lower()
+
+
+def apply_mac(iface: str, mac: str, timeout: float = 10.0) -> None:
+    """Apply a MAC via `sudo -n ip link set` (non-interactive; fails loudly
+    if the user has no passwordless sudo, rather than hanging on a prompt)."""
+    proc = subprocess.run(
+        ["sudo", "-n", "ip", "link", "set", "dev", iface, "address", mac],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if proc.returncode != 0:
+        raise MacError(
+            f"`sudo -n ip link set` failed (rc={proc.returncode}): "
+            f"{(proc.stderr or proc.stdout).strip() or 'no output'}"
+        )
+
+
+def spoof(iface: str, mac: str | None, apply: bool = False, force: bool = False) -> dict:
+    """Prepare (and optionally apply) a MAC change on `iface`.
+
+    Returns a plan dict; by default nothing is changed (dry-run) so the
+    operator can review the exact commands first.
+    """
+    mac = normalize_mac(mac)
+    original = current_mac(iface)
+    plan = {
+        "iface": iface,
+        "original": original,
+        "target": mac,
+        "applied": False,
+        "warnings": [],
+        "commands": [f"sudo -n ip link set dev {iface} address {mac}"],
+    }
+
+    if mac == original:
+        raise MacError(f"{iface} already has MAC {mac}")
+    if not re.fullmatch(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}", mac):
+        raise MacError(f"will not apply malformed MAC {mac!r}")
+
+    if not is_wireless(iface):
+        plan["warnings"].append(f"{iface} does not look wireless (MAC changes still work, but check)")
+    if iface == default_route_iface() and not force:
+        raise MacError(
+            f"{iface} carries your current connection — changing its MAC will drop you offline. "
+            "Re-run with --force when connected via another path (management port, second link, console)."
+        )
+
+    if apply:
+        apply_mac(iface, mac)
+        if current_mac(iface) != mac:
+            raise MacError("MAC write did not stick (interface may reject it)")
+        backup_mac(iface, original)
+        plan["applied"] = True
+    return plan
+
+
+def restore(iface: str) -> dict:
+    """Restore the backed-up original MAC for `iface`."""
+    original = read_backup(iface)
+    if not original:
+        raise MacError(f"no backup found for {iface} — nothing to restore")
+    apply_mac(iface, original)
+    ok = current_mac(iface) == original
+    clear_backup(iface)
+    return {"iface": iface, "restored_to": original, "verified": ok}
