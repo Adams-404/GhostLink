@@ -47,7 +47,9 @@ python -m ghostlink recon --no-color
 python -m ghostlink all --no-color --timeout 2.0
 
 # 3. the MAC toolkit
-python -m ghostlink mac neighbors          # ARP table — paid-device candidates
+python -m ghostlink mac list --no-color             # interfaces: type, driver, vendor
+python -m ghostlink mac neighbors --no-color        # devices: mDNS/PTR/NetBIOS names
+python -m ghostlink mac discover --no-color         # sweep subnet + name everyone
 python -m ghostlink mac watch aa:bb:cc:dd:ee:ff --duration 300
 python -m ghostlink mac gen --vendor apple --count 5
 python -m ghostlink mac spoof f0:18:98:2a:07:06            # dry-run
@@ -69,13 +71,21 @@ override the auto-detected interface.
 
 | Command | Purpose |
 | --- | --- |
+| **Command** | **Purpose** |
+| --- | --- |
 | `recon` | iface/gateway/resolver discovery + captive-portal detection via OS probe URLs |
 | `egress` | pre-auth TCP/UDP/ICMP egress matrix + DNS leak test (gateway vs. upstream) |
 | `walled` | portal splash-page dissection + walled-garden reachability matrix |
 | `extras` | IPv6 leak, traceroute/gateway divergence, DHCP hostname disclosure |
-| `mac` | `list` / `neighbors` / `gen` / `spoof` / `restore` / `watch` |
+| `mac` | `list` (interfaces: type/driver/vendor) · `neighbors` (named devices: mDNS/PTR/NetBIOS + OUI) · `discover` (subnet sweep) · `gen` · `spoof` · `restore` · `watch` |
 | `report` | render markdown from a saved run's JSON |
 | `all` | full sweep + findings report with severity heuristics |
+
+Device identities are best-effort: mDNS covers Apple/Linux/Android, NetBIOS
+covers Windows, reverse-PTR the rest. Vendor attribution from OUIs is a hint
+only — devices with locally-administered (randomized) MACs are flagged as
+`randomized`, since a randomized MAC is a much weaker session identity to
+inherit.
 
 ## How the analysis maps to the target architecture
 

@@ -22,13 +22,28 @@ authorized state. In real deployments you see three binding strengths:
 ## Reconnaissance order
 
 ```bash
-# 1. who is on the link right now
-ghostlink mac neighbors
+# 1. sweep the subnet — fills the ARP table and names everyone
+ghostlink mac discover --no-color
 
-# 2. find a device that is likely paying — look for the phone/laptop class OUIs
-#    (Apple/Samsung/Xiaomi/Intel) and, importantly, high-traffic ARP states
-ghostlink mac watch <candidate-mac> --duration 300
+# 2. or read the existing table
+ghostlink mac neighbors --no-color        # --fast to skip mDNS/PTR/NetBIOS
+ghostlink mac list --no-color             # interface type/driver/vendor
+
+# 3. find a device that is likely paying — phones publish names over mDNS
+#    (e.g. "omarchy.local", "fedora-linux.local", "DESKTOP-AB12"), flagship
+#    phones and IoT devices keep stable MACs; look for those
+ghostlink mac watch <mac> --duration 300
 ```
+
+Two signals the enriched table gives you for free:
+
+- **`randomized`** means the locally-administered (U/L) bit is set — the OS
+  rotates its MAC per SSID, so a cloned MAC buys you nothing against a
+  gateway that binds sessions to that identity. A *non*-randomized MAC
+  (stable, vendor-prefixed) is the inherit-capable class.
+- **Vendor hints** come from a built-in OUI table (Apple/Samsung/Xiaomi/Huawei/
+  Google/Espressif/Raspberry Pi/...). IoT devices with stable MACs (ESP32,
+  Raspberry Pi) are the classic "printer that always pays" pattern.
 
 `watch` tells you whether the target device is **present** (REACHABLE/STALE
 entries keep refreshing) or **absent**. A paid device that leaves creates a

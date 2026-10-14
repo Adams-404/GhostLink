@@ -12,14 +12,14 @@ QTYPE_A = 1
 QCLASS_IN = 1
 
 
-def build_query(qname: str, qid: int = 0x1234, rd: bool = True) -> bytes:
-    """Build a DNS query for `qname` (type A, class IN)."""
+def build_query(qname: str, qid: int = 0x1234, rd: bool = True, qtype: int = QTYPE_A) -> bytes:
+    """Build a DNS query for `qname` (given type, class IN)."""
     header = struct.pack(">HHHHHH", qid, 0x0100 if rd else 0x0000, 1, 0, 0, 0)
     question = b"".join(
         bytes([len(label)]) + label.encode("ascii", errors="strict")
         for label in qname.strip(".").split(".")
     )
-    question += b"\x00" + struct.pack(">HH", QTYPE_A, QCLASS_IN)
+    question += b"\x00" + struct.pack(">HH", qtype, QCLASS_IN)
     return header + question
 
 

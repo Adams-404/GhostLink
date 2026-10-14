@@ -11,7 +11,7 @@ import argparse
 import json
 import sys
 
-from . import __version__, egress, extras, mac as macmod, recon, report, walledgarden
+from . import __version__, egress, extras, ids, mac as macmod, recon, report, walledgarden
 from .config import detect_target
 from .output import Console
 
@@ -108,30 +108,93 @@ def cmd_all(args, console: Console) -> int:
 
 
 def cmd_mac_list(args, console: Console) -> int:
-    interfaces = macmod.list_interfaces()
+    interfaces = ids.enrich_interfaces(macmod.list_interfaces())
     if args.json:
         print(json.dumps(interfaces, indent=2))
         return 0
     console.section("Interfaces")
     console.table(
-        [[i["name"], i["mac"], i["state"], "yes" if i["wireless"] else "no"] for i in interfaces],
-        ["Interface", "MAC", "State", "WiFi"],
+        [
+            [
+                i["name"],
+                i["mac"],
+                i["type"],
+                i.get("driver") or "-",
+                i.get("vendor") or "-",
+                i["state"],
+            ]
+            for i in interfaces
+        ],
+        ["Interface", "MAC", "Type", "Driver", "Vendor", "State"],
     )
+    randomized = [i["name"] for i in interfaces if i.get("randomized")]
+    if randomized:
+        console.info(f"locally-administered (randomized) MACs: {', '.join(randomized)}")
     return 0
 
 
 def cmd_mac_neighbors(args, console: Console) -> int:
     entries = macmod.neighbors()
+    if args.fast or args.json:
+        enriched = [
+            {**e, "vendor": ids.lookup_vendor(e.get("mac", "")), "name": None}
+            for e in entries
+        ]
+    else:
+        enriched = ids.enrich_neighbors(entries, timeout=args.timeout)
     if args.json:
-        print(json.dumps(entries, indent=2))
+        print(json.dumps(enriched, indent=2))
         return 0
     console.section("Neighbor table")
     console.table(
-        [[e["ip"], e["mac"], e["state"], e["dev"]] for e in entries],
-        ["IP", "MAC", "State", "Iface"],
+        [
+            [
+                e["ip"],
+                e.get("name") or "-",
+                e["mac"],
+                e.get("vendor") or "-",
+                "randomized" if e.get("randomized") else e["state"],
+                e["dev"],
+            ]
+            for e in enriched
+        ],
+        ["IP", "Name", "MAC", "Vendor", "State/Note", "Iface"],
     )
     counts = macmod.neighbor_counts()
-    console.info(f"states: {counts}")
+    console.info(f"states: {counts}  (mDNS/PTR/NetBIOS lookups take ~2s/host; --fast to skip)")
+    return 0
+
+
+def cmd_mac_discover(args, console: Console) -> int:
+    """Populate the neighbor table via a light TCP sweep, then name everyone."""
+    target = detect_target() if not args.network else None
+    network = args.network or (target.network if target else None)
+    if not network:
+        console.fail("no network specified and none auto-detected")
+        return 1
+    console.info(f"sweeping {network} (tcp {list(args.ports)})...")
+    sweep = ids.sweep_hosts(network, ports=tuple(args.ports), concurrency=args.concurrency, timeout=args.timeout)
+    live = sweep["live"]
+    console.ok(f"{sweep['probed']} hosts probed, {len(live)} with listening services: {live}")
+    entries = [e for e in macmod.neighbors() if not target or e["dev"] == target.iface]
+    enriched = ids.enrich_neighbors(entries, timeout=args.timeout)
+    if args.json:
+        print(json.dumps({"sweep": sweep, "neighbors": enriched}, indent=2))
+        return 0
+    console.section(f"Devices on {network}")
+    console.table(
+        [
+            [
+                e["ip"],
+                e.get("name") or "-",
+                e["mac"],
+                e.get("vendor") or "-",
+                "randomized" if e.get("randomized") else e["state"],
+            ]
+            for e in enriched
+        ],
+        ["IP", "Name", "MAC", "Vendor", "State/Note"],
+    )
     return 0
 
 
@@ -142,8 +205,9 @@ def cmd_mac_gen(args, console: Console) -> int:
         return 0
     console.section(f"Generated {len(macs)} MAC(s)")
     for mac in macs:
-        locale = "local" if macmod.is_locally_administered(mac) else "universal"
-        console.info(f"{mac}  ({locale})")
+        locale = "local" if ids.is_randomized(mac) else "universal"
+        vendor = ids.lookup_vendor(mac)
+        console.info(f"{mac}  ({locale}{', ' + vendor if vendor else ''})")
     return 0
 
 
@@ -187,6 +251,15 @@ def cmd_mac_watch(args, console: Console) -> int:
         console.ok("target MAC never appeared in the neighbor table")
     for event in result["events"]:
         console.info(f"  {event}")
+    try:
+        mac = ids.normalize_mac(args.mac)
+        entry = next((e for e in macmod.neighbors() if e["mac"] == mac), None)
+        if entry:
+            naming = ids.hostname_for(entry["ip"], timeout=2.0)
+            label = naming["name"] or ids.lookup_vendor(mac) or "unknown vendor"
+            console.kv("Device", f"{label} ({entry['ip']}, {naming['source'] or 'unnamed'})")
+    except ids.IdentityError:
+        pass
     return 0
 
 
@@ -242,8 +315,17 @@ def build_parser() -> argparse.ArgumentParser:
     p = msub.add_parser("list", parents=[common], help="interfaces and current MACs")
     p.set_defaults(func=cmd_mac_list)
 
-    p = msub.add_parser("neighbors", parents=[common], help="ARP/neighbor table (paid-device candidates)")
+    p = msub.add_parser("neighbors", parents=[common], help="ARP/neighbor table with device names (paid-device candidates)")
+    p.add_argument("--timeout", type=float, default=2.0, help="per-host naming probe timeout")
+    p.add_argument("--fast", action="store_true", help="skip mDNS/PTR/NetBIOS naming (instant)")
     p.set_defaults(func=cmd_mac_neighbors)
+
+    p = msub.add_parser("discover", parents=[common], help="sweep the subnet + name every responding device")
+    p.add_argument("--network", help="CIDR to sweep (default: this interface's subnet)")
+    p.add_argument("--ports", nargs="*", type=int, default=[80, 443, 22, 445], help="TCP ports used to provoke ARP")
+    p.add_argument("--timeout", type=float, default=0.7, help="host probe timeout")
+    p.add_argument("--concurrency", type=int, default=64)
+    p.set_defaults(func=cmd_mac_discover)
 
     p = msub.add_parser("gen", parents=[common], help="generate spoofable MACs")
     p.add_argument("--vendor", choices=sorted(macmod.VENDOR_OUI), help="prefix a consumer OUI (realistic impersonation)")

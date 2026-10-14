@@ -4,17 +4,20 @@ and the spoof engine (dry-run / sudo apply / backup / restore)."""
 from __future__ import annotations
 
 import os
-import re
 import secrets
 import subprocess
 from pathlib import Path
 
+from . import ids
 from .config import ip_json, is_wireless
 
-_MAC_RE = re.compile(
-    r"^([0-9a-fA-F]{2})[:-]([0-9a-fA-F]{2})[:-]([0-9a-fA-F]{2})[:-]"
-    r"([0-9a-fA-F]{2})[:-]([0-9a-fA-F]{2})[:-]([0-9a-fA-F]{2})$"
-)
+# Single source of truth for MAC parsing/lookup lives in ids.py; re-exported
+# here so existing imports (and tests) keep working.
+IdentityError = ids.IdentityError
+MacError = IdentityError
+normalize_mac = ids.normalize_mac
+is_locally_administered = ids.is_randomized  # historical name, same U/L-bit check
+lookup_vendor = ids.lookup_vendor
 
 # Common consumer OUIs — for realistic impersonation of a paying device.
 # Replace with the OUIs actually seen on the target network at the venue.
@@ -25,23 +28,6 @@ VENDOR_OUI: dict[str, list[str]] = {
     "intel": ["8c:70:5a", "3c:58:c2", "94:65:9c"],
     "google": ["3c:5a:b4", "f4:f5:d8", "1c:f2:9a"],
 }
-
-
-class MacError(ValueError):
-    """Raised for malformed MAC strings or invalid spoof requests."""
-
-
-def normalize_mac(mac: str) -> str:
-    """Validate and normalize a MAC to lowercase colon-separated form."""
-    match = _MAC_RE.match(mac.strip())
-    if not match:
-        raise MacError(f"invalid MAC address: {mac!r}")
-    return ":".join(group.lower() for group in match.groups())
-
-
-def is_locally_administered(mac: str) -> bool:
-    """True when the locally-administered bit (U/L) is set."""
-    return bool(int(normalize_mac(mac).split(":")[0], 16) & 0b10)
 
 
 def random_mac(local: bool = True, vendor: str | None = None) -> str:
@@ -77,18 +63,27 @@ def list_interfaces() -> list[dict]:
     return out
 
 
-def neighbors() -> list[dict]:
-    """Neighbor (ARP/ND) table entries — who has been talkative on this link."""
+def neighbors(include_unresolved: bool = False) -> list[dict]:
+    """Neighbor (ARP/ND) table entries — who has been talkative on this link.
+
+    Unresolved entries (INCOMPLETE/FAILED — our own failed ARP attempts) are
+    hidden by default; pass include_unresolved=True for the raw table.
+    """
     entries = ip_json(["neigh", "show"])
-    return [
-        {
-            "ip": entry.get("dst", "?"),
-            "mac": entry.get("lladdr", "incomplete"),
-            "state": ",".join(entry["state"]) if isinstance(entry.get("state"), list) else entry.get("state", "?"),
-            "dev": entry.get("dev", "?"),
-        }
-        for entry in entries
-    ]
+    out = []
+    for entry in entries:
+        state = ",".join(entry["state"]) if isinstance(entry.get("state"), list) else entry.get("state", "?")
+        if not include_unresolved and state.upper() in ("INCOMPLETE", "FAILED", "NONE"):
+            continue
+        out.append(
+            {
+                "ip": entry.get("dst", "?"),
+                "mac": entry.get("lladdr", "incomplete"),
+                "state": state,
+                "dev": entry.get("dev", "?"),
+            }
+        )
+    return out
 
 
 def neighbor_counts() -> dict[str, int]:
