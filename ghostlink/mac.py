@@ -203,3 +203,56 @@ def restore(iface: str) -> dict:
     ok = current_mac(iface) == original
     clear_backup(iface)
     return {"iface": iface, "restored_to": original, "verified": ok}
+
+
+def watch(target_mac: str, interval: float = 2.0, duration: float = 60.0) -> dict:
+    """Poll the neighbor table for a target MAC (paid-device hunt).
+
+    A cloned MAC only inherits a paid session if the *real* device keeps the
+    session alive (or expires gracefully) — watching ARP behaviour tells you
+    whether the target is present, how long its entries live, and when the
+    session binding might be stealable.
+    """
+    import time
+
+    target = normalize_mac(target_mac)
+    events: list[dict] = []
+    states_seen: set[str] = set()
+    last_state: str | None = None
+    started = time.monotonic()
+    polls = 0
+    while time.monotonic() - started < duration:
+        polls += 1
+        hits = [n for n in neighbors() if n["mac"] == target]
+        if hits:
+            hit = hits[0]
+            state = hit["state"]
+            if state != last_state:
+                events.append(
+                    {
+                        "event": "seen" if last_state is None else "state-change",
+                        "state": state,
+                        "ip": hit["ip"],
+                        "at_round": polls,
+                        "elapsed": round(time.monotonic() - started, 2),
+                    }
+                )
+                last_state = state
+            states_seen.add(state)
+        elif last_state is not None:
+            events.append(
+                {
+                    "event": "disappeared",
+                    "at_round": polls,
+                    "elapsed": round(time.monotonic() - started, 2),
+                }
+            )
+            last_state = None
+        time.sleep(max(0.2, interval))
+    return {
+        "target": target,
+        "polls": polls,
+        "seen": last_state is not None,
+        "states": sorted(states_seen),
+        "events": events,
+    }
