@@ -70,6 +70,43 @@ def cmd_report(args, console: Console) -> int:
     return 0
 
 
+def cmd_all(args, console: Console) -> int:
+    """Run every sweep and write a full findings report."""
+    target = _target(args)
+    results: dict = {}
+    failures: dict = {}
+    for name, runner in (
+        ("recon", lambda: recon.run(target, timeout=args.timeout)),
+        ("egress", lambda: egress.run(target, timeout=args.timeout)),
+        ("walled", lambda: walledgarden.run(concurrency=8, timeout=args.timeout)),
+        ("extras", lambda: extras.run(target, timeout=args.timeout)),
+    ):
+        try:
+            results[name] = runner()
+            console.ok(f"{name} sweep complete")
+        except Exception as exc:  # noqa: BLE001 - record and continue
+            failures[name] = f"{type(exc).__name__}: {exc}"
+            console.fail(f"{name} sweep failed: {failures[name]}")
+    if failures:
+        results["failures"] = failures
+
+    if args.json:
+        print(json.dumps(results, indent=2))
+        return 0 if not failures else 1
+
+    md_path, json_path = report.write(args.out, target, results)
+    console.section("Report")
+    console.ok(f"markdown: {md_path}")
+    console.ok(f"json:     {json_path}")
+
+    findings = report.generate_findings(results)
+    console.section(f"Findings ({len(findings)})")
+    for finding in findings:
+        style = finding["severity"]
+        console.line(style if style in ("high", "medium", "low", "info") else "info", f"{finding['title']} — {finding['detail']}")
+    return 0
+
+
 def cmd_mac_list(args, console: Console) -> int:
     interfaces = macmod.list_interfaces()
     if args.json:
@@ -193,6 +230,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--input", default="ghostlink-report.json")
     p.add_argument("--out", default="ghostlink-report.md")
     p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("all", parents=[common], help="full sweep (recon + egress + walled + extras) + report")
+    p.add_argument("--timeout", type=float, default=3.0)
+    p.add_argument("--out", default="ghostlink-report", help="output basename for .md/.json report")
+    p.set_defaults(func=cmd_all)
 
     m = sub.add_parser("mac", help="MAC inventory, generation, spoofing, neighbor watch")
     msub = m.add_subparsers(dest="mac_command", required=True)
