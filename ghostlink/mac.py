@@ -53,9 +53,11 @@ def random_mac(local: bool = True, vendor: str | None = None) -> str:
             raise MacError(f"unknown vendor {vendor!r}; choices: {sorted(VENDOR_OUI)}")
         oui = secrets.choice(VENDOR_OUI[vendor])
         octets = [int(p, 16) for p in oui.split(":")] + list(secrets.token_bytes(3))
+        # NB: a vendor prefix owns the first octet's bits — mangling the U/L
+        # bit here would break the OUI, so we keep it verbatim.
     else:
         octets = list(secrets.token_bytes(6))
-    octets[0] = (octets[0] & ~0b11) | (0b10 if local else 0b00)
+        octets[0] = (octets[0] & ~0b11) | (0b10 if local else 0b00)
     return ":".join(f"{o:02x}" for o in octets)
 
 
