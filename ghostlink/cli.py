@@ -1,7 +1,8 @@
 """GhostLink command-line interface.
 
-Usage: ghostlink [--iface IFACE] [--no-color] [--json] <command> [options]
-Run `ghostlink <command> -h` for per-command options.
+Usage: ghostlink <command> [options]
+Shared options (--iface, --no-color, --json) go after the subcommand:
+    ghostlink recon --iface wlp0s20f3 --no-color --json
 """
 
 from __future__ import annotations
@@ -40,7 +41,6 @@ def cmd_egress(args, console: Console) -> int:
 
 
 def cmd_walled(args, console: Console) -> int:
-    args_json_target = _target(args)
     data = walledgarden.run(
         portal_url=args.portal_url,
         concurrency=args.concurrency,
@@ -51,7 +51,6 @@ def cmd_walled(args, console: Console) -> int:
         print(json.dumps(data, indent=2))
         return 0
     walledgarden.render(data, console)
-    del args_json_target
     return 0
 
 
@@ -72,47 +71,47 @@ def cmd_report(args, console: Console) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    # Shared flags live on a parent parser so they can appear after any
+    # subcommand (ghostlink recon --json) — the least surprising placement.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--iface", help="interface to analyse (default: default-route interface)")
+    common.add_argument("--no-color", action="store_true", help="disable ANSI colors")
+    common.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+
     parser = argparse.ArgumentParser(
         prog="ghostlink",
         description="Captive-portal paywall analysis toolkit — for authorized security research only.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--iface", help="interface to analyse (default: default-route interface)")
-    parser.add_argument("--no-color", action="store_true", help="disable ANSI colors")
-    parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
 
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("recon", help="link/gateway/resolver discovery + captive-portal detection")
+    p = sub.add_parser("recon", parents=[common], help="link/gateway/resolver discovery + captive-portal detection")
     p.add_argument("--timeout", type=float, default=4.0)
     p.set_defaults(func=cmd_recon)
 
-    p = sub.add_parser("egress", help="pre-auth TCP/UDP/ICMP egress matrix + DNS leak test")
+    p = sub.add_parser("egress", parents=[common], help="pre-auth TCP/UDP/ICMP egress matrix + DNS leak test")
     p.add_argument("--timeout", type=float, default=3.0)
     p.add_argument("--concurrency", type=int, default=32)
     p.set_defaults(func=cmd_egress)
 
-    p = sub.add_parser("walled", help="portal page dissection + walled-garden reachability")
+    p = sub.add_parser("walled", parents=[common], help="portal page dissection + walled-garden reachability")
     p.add_argument("--portal-url", default=None, help="portal splash page URL (auto-detected if omitted)")
     p.add_argument("--timeout", type=float, default=3.0)
     p.add_argument("--concurrency", type=int, default=24)
-    p.add_argument("--candidates", type=int, default=wallgarden_default_candidates(), help="max hosts parsed from the portal page")
+    p.add_argument("--candidates", type=int, default=walledgarden._MAX_CANDIDATES, help="max hosts parsed from the portal page")
     p.set_defaults(func=cmd_walled)
 
-    p = sub.add_parser("extras", help="IPv6 leak, path divergence, DHCP disclosure")
+    p = sub.add_parser("extras", parents=[common], help="IPv6 leak, path divergence, DHCP disclosure")
     p.add_argument("--timeout", type=float, default=3.0)
     p.set_defaults(func=cmd_extras)
 
-    p = sub.add_parser("report", help="render markdown from a saved run JSON")
+    p = sub.add_parser("report", parents=[common], help="render markdown from a saved run JSON")
     p.add_argument("--input", default="ghostlink-report.json")
     p.add_argument("--out", default="ghostlink-report.md")
     p.set_defaults(func=cmd_report)
 
     return parser
-
-
-def wallgarden_default_candidates() -> int:
-    return walledgarden._MAX_CANDIDATES
 
 
 def main(argv: list[str] | None = None) -> int:
