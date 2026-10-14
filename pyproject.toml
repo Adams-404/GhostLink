@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ghostlink"
+version = "0.1.0"
+description = "CLI toolkit for analysing captive-portal paywalls (MAC binding, walled garden, pre-auth egress) — for authorized security research."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Adams-404" }]
+keywords = ["captive-portal", "wifi", "security-research", "pentest", "hotspot"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+ghostlink = "ghostlink.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ghostlink*"]
