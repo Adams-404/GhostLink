@@ -21,6 +21,7 @@ root. Anything worth keeping gets copied into `findings/` with a dated name:
 | Finding | Network | Summary |
 | --- | --- | --- |
 | [2026-10-14-baseline-open-network.md](findings/2026-10-14-baseline-open-network.md) | `wlp0s20f3` (192.168.42.0/24, no portal) | Toolchain validation run: open network, all modules verified |
+| [2026-10-14-npm-wrapper-pipeline.md](findings/2026-10-14-npm-wrapper-pipeline.md) | npm publishing | Postmortem: broken PYTHONPATH, name collision, help UX — plus the registry verification protocol |
 
 ## Venue runbook
 
