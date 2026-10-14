@@ -1,0 +1,43 @@
+{
+  "name": "ghostlink",
+  "version": "0.1.0",
+  "description": "CLI toolkit for captive-portal paywall analysis — MAC/session inheritance, walled-garden escape, pre-auth egress & DNS-leak testing",
+  "bin": {
+    "ghostlink": "bin/ghostlink.js"
+  },
+  "files": [
+    "bin/",
+    "ghostlink/",
+    "README.md"
+  ],
+  "scripts": {
+    "prepack": "bash sync-python.sh",
+    "test": "bash sync-python.sh && node bin/ghostlink.js --version && node bin/ghostlink.js recon --json >/dev/null && echo 'ghostlink wrapper smoke: OK'"
+  },
+  "keywords": [
+    "captive-portal",
+    "wifi-security",
+    "mac-spoofing",
+    "walled-garden",
+    "security-research",
+    "pentest-tools",
+    "cli",
+    "hackathon"
+  ],
+  "author": "Adams-404",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14"
+  },
+  "os": [
+    "linux"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Adams-404/GhostLink.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Adams-404/GhostLink/issues"
+  },
+  "homepage": "https://github.com/Adams-404/GhostLink#readme"
+}

@@ -12,10 +12,23 @@ networks you own).
 
 ## Install
 
+### npm (wrapper, Linux)
+
 ```bash
-git clone <repo> && cd GhostLink
+npm install -g ghostlink
+ghostlink recon --no-color
+```
+
+This ships the same stdlib-only Python CLI in a Node wrapper — at runtime it
+needs **Python 3.10+** and **iproute2** (`ip -j`) on the box. The wrapper
+locates `python3` (override with `GHOSTLINK_PYTHON`), checks the version, and
+execs `python -m ghostlink`.
+
+### from source
+
+```bash
+git clone https://github.com/Adams-404/GhostLink.git && cd GhostLink
 python -m unittest discover -s tests     # 27 tests, no network needed
-# optional: install the console script
 python -m venv .venv && . .venv/bin/activate && pip install -e .
 ghostlink --help
 ```
@@ -85,6 +98,7 @@ venue runbook.
 ghostlink/          CLI + modules (config, recon, egress, walledgarden, mac, extras, report, dnswire)
 tests/              stdlib unittest suite (27 tests, offline)
 docs/               index, techniques/, findings/, venue-runbook.md
+npm/                npm wrapper (bin shim + package.json; sync-python.sh bundles the Python code at pack time)
 ```
 
 ## Tech notes
