@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-_URL_RE = re.compile(r"""https?://([a-zA-Z0-9][a-zA-Z0-9.\-]*[a-zA-Z0-9])""")
+_URL_RE = re.compile(r"""(?:(?:https?:)?//)([a-zA-Z0-9][a-zA-Z0-9.\-]*[a-zA-Z0-9])""")
 _SKIP_HOSTS = {"localhost"}
 _MAX_CANDIDATES = 40
 
