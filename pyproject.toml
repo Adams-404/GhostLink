@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ghostlink"
-version = "0.1.1"
+version = "0.1.2"
 description = "CLI toolkit for analysing captive-portal paywalls (MAC binding, walled garden, pre-auth egress) — for authorized security research."
 readme = "README.md"
 requires-python = ">=3.10"
