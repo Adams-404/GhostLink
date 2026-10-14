@@ -49,7 +49,7 @@ def detect_portal(timeout: float = 4.0) -> dict:
                 if not result["portal"]:
                     result["portal"] = True
                     result["portal_url"] = location
-            elif status == 200 and (expect is None or expect in body):
+            elif status in (200, 204) and (expect is None or expect in body):
                 entry["result"] = "direct"
             elif status == 200:
                 entry["result"] = "unexpected-body"
