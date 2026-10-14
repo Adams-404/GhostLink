@@ -88,3 +88,57 @@ def probe_candidates(hosts: list[str], ports: tuple[int, ...] = (443, 80), concu
             if hit:
                 result[host] = hit
     return dict(sorted(result.items()))
+
+
+def fetch_portal_page(url: str, timeout: float = 5.0) -> tuple[str | None, str | None]:
+    """Fetch the portal splash page (HTTPS capable). Returns (html, error)."""
+    import urllib.request
+
+    if url.startswith("http://"):
+        url = "http://" + urlsplit(url).netloc + (urlsplit(url).path or "/")
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (ghostlink)"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read(1_000_000).decode("utf-8", errors="replace"), None
+    except Exception as exc:  # noqa: BLE001 - report any fetch failure verbatim
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def run(portal_url: str | None = None, concurrency: int = 24, timeout: float = 3.0, candidate_limit: int = _MAX_CANDIDATES) -> dict:
+    """Dissect the portal page (if any) and probe the walled garden."""
+    data: dict = {"portal_url": portal_url, "page_hosts": [], "fetch_error": None, "reachable": {}}
+    if portal_url:
+        html, err = fetch_portal_page(portal_url, timeout=timeout + 2)
+        if html is None:
+            data["fetch_error"] = err
+        else:
+            portal_host = urlsplit(portal_url).hostname
+            data["page_hosts"] = extract_candidate_hosts(html, portal_host, limit=candidate_limit)
+    if data["page_hosts"]:
+        data["reachable"] = probe_candidates(data["page_hosts"], concurrency=concurrency, timeout=timeout)
+    else:
+        data["reachable"] = probe_candidates(DEFAULT_CANDIDATES, concurrency=concurrency, timeout=timeout)
+    return data
+
+
+def render(data: dict, console) -> None:
+    from .output import Console as _Console  # noqa: F401  (typing sugar)
+
+    console.section("Walled garden")
+    if data["portal_url"]:
+        console.kv("Portal page", data["portal_url"])
+        if data["fetch_error"]:
+            console.warn(f"could not fetch portal page: {data['fetch_error']}")
+        elif data["page_hosts"]:
+            console.ok(f"{len(data['page_hosts'])} host(s) referenced by portal page")
+        else:
+            console.info("portal page referenced no external hosts")
+    else:
+        console.info("no portal page — probing seeded candidates (connectivity/DNS/payment hosts)")
+
+    if data["reachable"]:
+        console.fail(f"{len(data['reachable'])} host(s) reachable pre-auth:")
+        for host, ports in data["reachable"].items():
+            console.info(f"  {host:<40} ports {ports}")
+    else:
+        console.ok("no candidate hosts reachable pre-auth")
