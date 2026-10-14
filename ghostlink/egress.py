@@ -60,3 +60,17 @@ def udp_dns_probe(server: str, qname: str = "example.com", timeout: float = 3.0)
     except (socket.timeout, OSError) as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
     return result
+
+
+def dns_leak_test(gateway: str | None, timeout: float = 3.0) -> dict:
+    """Is DNS usable pre-auth, and against which servers?
+
+    - gateway answering direct queries  -> local recursion available (tunnel host)
+    - off-LAN resolver replying over UDP -> unfiltered UDP/53 egress (dnscat2 path)
+    """
+    result = {"gateway": None, "upstream": []}
+    if gateway:
+        result["gateway"] = udp_dns_probe(gateway, timeout=timeout)
+    for server in ("1.1.1.1", "8.8.8.8"):
+        result["upstream"].append(udp_dns_probe(server, timeout=timeout))
+    return result
