@@ -29,10 +29,13 @@ class TestExtractCandidateHosts(unittest.TestCase):
         self.assertNotIn("portal.venue.local", hosts)
 
     def test_dedupes_and_sorts(self):
-        hosts = extract_candidate_hosts(
-            "a.com x.com <script>a.com</script>", portal_host=None
-        )
+        html = "https://a.com/x https://x.com/y <script>a.com/z</script>"
+        hosts = extract_candidate_hosts(html, portal_host=None)
         self.assertEqual(hosts, ["a.com", "x.com"])
+
+    def test_protocol_relative_urls(self):
+        html = '<script src="//cdn.example.net/a.js"></script>'
+        self.assertEqual(extract_candidate_hosts(html, None), ["cdn.example.net"])
 
     def test_respects_limit(self):
         html = " ".join(f"https://h{i}.example.com/x" for i in range(100))
