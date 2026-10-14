@@ -81,7 +81,7 @@ def neighbors() -> list[dict]:
         {
             "ip": entry.get("dst", "?"),
             "mac": entry.get("lladdr", "incomplete"),
-            "state": entry.get("state", "?"),
+            "state": ",".join(entry["state"]) if isinstance(entry.get("state"), list) else entry.get("state", "?"),
             "dev": entry.get("dev", "?"),
         }
         for entry in entries
