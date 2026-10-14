@@ -51,7 +51,7 @@ if (!versionProbe.error) {
 
 // 3. The bundled Python package must be inside this install.
 if (!fs.existsSync(path.join(pythonPkg, 'cli.py'))) {
-  die('bundled Python package is missing', 'reinstall with: npm install -g ghostlink');
+  die('bundled Python package is missing', 'reinstall with: npm install -g @adams-404/ghostlink');
 }
 
 // 4. Warn (don't fail) when iproute2's JSON mode is unavailable.
@@ -62,9 +62,12 @@ if (process.argv[2] !== '--version' && !process.env.GHOSTLINK_NO_IP_CHECK) {
   }
 }
 
+// PYTHONPATH must be the PARENT of the package directory — python searches
+// each sys.path entry for a `ghostlink/` subdir, so pointing it *at* the
+// package dir leaves the module unimportable.
 const env = {
   ...process.env,
-  PYTHONPATH: pythonPkg + (process.env.PYTHONPATH ? `${path.delimiter}${process.env.PYTHONPATH}` : ''),
+  PYTHONPATH: pkgRoot + (process.env.PYTHONPATH ? `${path.delimiter}${process.env.PYTHONPATH}` : ''),
 };
 
 const child = spawnSync(python, ['-m', 'ghostlink', ...process.argv.slice(2)], {
