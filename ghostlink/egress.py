@@ -37,3 +37,26 @@ def tcp_matrix(concurrency: int = 32, timeout: float = 3.0) -> dict[str, dict[in
             ip, port = futures[fut]
             results.setdefault(ip, {})[port] = fut.result()
     return results
+
+
+def udp_dns_probe(server: str, qname: str = "example.com", timeout: float = 3.0) -> dict:
+    """Send one UDP/DNS query to `server` and see if a reply comes back.
+
+    A reply from an off-LAN resolver pre-auth means UDP/53 egress is unfiltered —
+    the classic dnscat2/iodine tunnel path through a portal's walled garden.
+    """
+    qid = 0x4242
+    query = build_query(qname, qid=qid)
+    result = {"server": server, "qname": qname, "reply": False, "rcode": None, "error": None}
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(timeout)
+            sock.sendto(query, (server, 53))
+            data, _ = sock.recvfrom(1024)
+        header = parse_header(data)
+        result["reply"] = header["id"] == qid
+        result["rcode"] = header["rcode"]
+        result["ancount"] = header["ancount"]
+    except (socket.timeout, OSError) as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+    return result
