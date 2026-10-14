@@ -15,7 +15,7 @@ networks you own).
 ### npm (wrapper, Linux)
 
 ```bash
-npm install -g ghostlink
+npm install -g @adams-404/ghostlink
 ghostlink recon --no-color
 ```
 

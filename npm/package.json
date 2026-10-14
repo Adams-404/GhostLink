@@ -1,6 +1,9 @@
 {
-  "name": "ghostlink",
+  "name": "@adams-404/ghostlink",
   "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "CLI toolkit for captive-portal paywall analysis — MAC/session inheritance, walled-garden escape, pre-auth egress & DNS-leak testing",
   "bin": {
     "ghostlink": "bin/ghostlink.js"
