@@ -70,6 +70,91 @@ def cmd_report(args, console: Console) -> int:
     return 0
 
 
+def cmd_mac_list(args, console: Console) -> int:
+    interfaces = macmod.list_interfaces()
+    if args.json:
+        print(json.dumps(interfaces, indent=2))
+        return 0
+    console.section("Interfaces")
+    console.table(
+        [[i["name"], i["mac"], i["state"], "yes" if i["wireless"] else "no"] for i in interfaces],
+        ["Interface", "MAC", "State", "WiFi"],
+    )
+    return 0
+
+
+def cmd_mac_neighbors(args, console: Console) -> int:
+    entries = macmod.neighbors()
+    if args.json:
+        print(json.dumps(entries, indent=2))
+        return 0
+    console.section("Neighbor table")
+    console.table(
+        [[e["ip"], e["mac"], e["state"], e["dev"]] for e in entries],
+        ["IP", "MAC", "State", "Iface"],
+    )
+    counts = macmod.neighbor_counts()
+    console.info(f"states: {counts}")
+    return 0
+
+
+def cmd_mac_gen(args, console: Console) -> int:
+    macs = [macmod.random_mac(local=not args.universal, vendor=args.vendor) for _ in range(args.count)]
+    if args.json:
+        print(json.dumps(macs, indent=2))
+        return 0
+    console.section(f"Generated {len(macs)} MAC(s)")
+    for mac in macs:
+        locale = "local" if macmod.is_locally_administered(mac) else "universal"
+        console.info(f"{mac}  ({locale})")
+    return 0
+
+
+def cmd_mac_spoof(args, console: Console) -> int:
+    target = _target(args)
+    iface = args.iface or target.iface
+    mac = args.mac if args.mac and args.mac != "random" else macmod.random_mac(vendor=args.vendor)
+    if not args.apply:
+        console.info("dry-run — pass --apply to execute (uses sudo -n, non-interactive)")
+    try:
+        plan = macmod.spoof(iface, mac, apply=args.apply, force=args.force)
+    except Exception as exc:  # noqa: BLE001 - surface refusal cleanly
+        console.fail(f"spoof refused: {exc}")
+        return 2
+    console.kv("Interface", plan["iface"])
+    console.kv("Original MAC", plan["original"])
+    console.kv("Target MAC", plan["target"])
+    console.kv("Applied", "yes" if plan["applied"] else "no (dry-run)")
+    for warning in plan["warnings"]:
+        console.warn(warning)
+    for command in plan["commands"]:
+        console.info(f"command: {command}")
+    return 0
+
+
+def cmd_mac_restore(args, console: Console) -> int:
+    target = _target(args)
+    iface = args.iface or target.iface
+    result = macmod.restore(iface)
+    console.ok(f"restored {result['iface']} to {result['restored_to']} (verified={result['verified']})")
+    return 0
+
+
+def cmd_mac_watch(args, console: Console) -> int:
+    console.section(f"Watching for {args.mac} ({args.duration}s @ {args.interval}s)")
+    result = macmod.watch(args.mac, interval=args.interval, duration=args.duration)
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    if result["seen"]:
+        console.fail(f"target MAC seen — states observed: {result['states']}")
+    else:
+        console.ok("target MAC never appeared in the neighbor table")
+    for event in result["events"]:
+        console.info(f"  {event}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     # Shared flags live on a parent parser so they can appear after any
     # subcommand (ghostlink recon --json) — the least surprising placement.
@@ -110,6 +195,37 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--input", default="ghostlink-report.json")
     p.add_argument("--out", default="ghostlink-report.md")
     p.set_defaults(func=cmd_report)
+
+    m = sub.add_parser("mac", help="MAC inventory, generation, spoofing, neighbor watch")
+    msub = m.add_subparsers(dest="mac_command", required=True)
+
+    p = msub.add_parser("list", parents=[common], help="interfaces and current MACs")
+    p.set_defaults(func=cmd_mac_list)
+
+    p = msub.add_parser("neighbors", parents=[common], help="ARP/neighbor table (paid-device candidates)")
+    p.set_defaults(func=cmd_mac_neighbors)
+
+    p = msub.add_parser("gen", parents=[common], help="generate spoofable MACs")
+    p.add_argument("--vendor", choices=sorted(macmod.VENDOR_OUI), help="prefix a consumer OUI (realistic impersonation)")
+    p.add_argument("--universal", action="store_true", help="generate universally-administered instead of locally-administered")
+    p.add_argument("--count", type=int, default=5)
+    p.set_defaults(func=cmd_mac_gen)
+
+    p = msub.add_parser("spoof", parents=[common], help="change this interface's MAC (dry-run by default)")
+    p.add_argument("mac", nargs="?", help="MAC to apply, or 'random'")
+    p.add_argument("--vendor", choices=sorted(macmod.VENDOR_OUI), help="when generating: prefix a consumer OUI")
+    p.add_argument("--apply", action="store_true", help="execute via sudo -n (default: dry-run)")
+    p.add_argument("--force", action="store_true", help="allow spoofing the interface carrying your current connection")
+    p.set_defaults(func=cmd_mac_spoof)
+
+    p = msub.add_parser("restore", parents=[common], help="restore the backed-up original MAC")
+    p.set_defaults(func=cmd_mac_restore)
+
+    p = msub.add_parser("watch", parents=[common], help="poll the neighbor table for a target MAC")
+    p.add_argument("mac", help="MAC to look for (e.g. a paying device you want to clone)")
+    p.add_argument("--interval", type=float, default=2.0)
+    p.add_argument("--duration", type=float, default=60.0)
+    p.set_defaults(func=cmd_mac_watch)
 
     return parser
 
