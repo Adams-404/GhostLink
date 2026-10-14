@@ -277,7 +277,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
 
     p = sub.add_parser("recon", parents=[common], help="link/gateway/resolver discovery + captive-portal detection")
     p.add_argument("--timeout", type=float, default=4.0)
@@ -310,7 +310,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_all)
 
     m = sub.add_parser("mac", help="MAC inventory, generation, spoofing, neighbor watch")
-    msub = m.add_subparsers(dest="mac_command", required=True)
+    msub = m.add_subparsers(dest="mac_command")
 
     p = msub.add_parser("list", parents=[common], help="interfaces and current MACs")
     p.set_defaults(func=cmd_mac_list)
@@ -355,6 +355,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not getattr(args, "func", None):
+        # bare `ghostlink` or `ghostlink mac`: show help instead of an error
+        parser.print_help()
+        return 1
     console = Console(color=not args.no_color)
     try:
         return int(args.func(args, console))
