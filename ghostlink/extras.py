@@ -115,3 +115,44 @@ def dhcp_hostname(iface: str) -> dict:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         result["nmcli"] = "unavailable"
     return result
+
+
+def run(target: Target, timeout: float = 3.0) -> dict:
+    v6 = ipv6_addresses()
+    hops = traceroute(timeout=timeout)
+    return {
+        "ipv6_addresses": v6,
+        "ipv6_egress": ipv6_egress(timeout=timeout) if v6 else "no-global-v6",
+        "route_metrics": route_metrics(),
+        "path": path_divergence(target, hops),
+        "dhcp": dhcp_hostname(target.iface),
+    }
+
+
+def render(target: Target, data: dict, console) -> None:
+    console.section("IPv6")
+    if data["ipv6_addresses"]:
+        console.warn("global IPv6 addresses present — potential egress path that may bypass portal:")
+        for entry in data["ipv6_addresses"]:
+            console.info(f"  {entry['iface']}: {entry['address']}/{entry['prefixlen']}")
+    else:
+        console.ok("no global IPv6 addresses — IPv6 egress not applicable")
+
+    console.section("Path")
+    path = data["path"]
+    console.kv("Expected gateway", path.get("expected_gateway"))
+    console.kv("First hop", path.get("first_hop"))
+    if path.get("matches_gateway"):
+        console.ok("first hop matches gateway — no obvious in-path interception from this host")
+    elif path.get("first_hop"):
+        console.warn("first hop differs from gateway — possible transparent interception/bridge")
+    if path.get("in_subnet_hops"):
+        console.info(f"hops inside local subnet: {path['in_subnet_hops']}")
+
+    console.section("DHCP disclosure")
+    dhcp = data["dhcp"]
+    console.kv("Local hostname", dhcp["local_hostname"])
+    if dhcp["dhcp_hostname"]:
+        console.info(f"DHCP sends host_name={dhcp['dhcp_hostname'].strip()!r} (usable for client fingerprinting)")
+    else:
+        console.ok("no DHCP hostname disclosed")
