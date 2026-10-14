@@ -74,3 +74,61 @@ def dns_leak_test(gateway: str | None, timeout: float = 3.0) -> dict:
     for server in ("1.1.1.1", "8.8.8.8"):
         result["upstream"].append(udp_dns_probe(server, timeout=timeout))
     return result
+
+
+def icmp_probe(host: str = "1.1.1.1", count: int = 1, timeout: float = 3.0) -> dict:
+    """ICMP reachability via ping(1) — the raw-socket path needs privileges,
+    so we detect capability rather than assume it."""
+    result = {"host": host, "reachable": False, "error": None, "output": ""}
+    try:
+        proc = subprocess.run(
+            ["ping", "-c", str(count), "-W", str(int(timeout)), host],
+            capture_output=True,
+            text=True,
+            timeout=timeout + count + 5,
+        )
+        result["output"] = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
+        result["reachable"] = proc.returncode == 0
+        if proc.returncode == 2:
+            result["error"] = "ping reported failure (privileges? firewall?)"
+    except FileNotFoundError:
+        result["error"] = "ping binary not found"
+    except subprocess.TimeoutExpired:
+        result["error"] = "ping timed out"
+    return result
+
+
+def run(target: Target, concurrency: int = 32, timeout: float = 3.0) -> dict:
+    return {
+        "tcp": tcp_matrix(concurrency=concurrency, timeout=timeout),
+        "udp_upstream": udp_dns_probe("1.1.1.1", timeout=timeout),
+        "dns_leak": dns_leak_test(target.gateway, timeout=timeout),
+        "icmp": icmp_probe(timeout=timeout),
+    }
+
+
+def render(target: Target, data: dict, console: Console) -> None:
+    console.section("Pre-auth TCP egress (public IPs)")
+    for ip, ports in sorted(data["tcp"].items()):
+        open_ports = sorted(p for p, st in ports.items() if st == "open")
+        filtered = sorted(p for p, st in ports.items() if st == "filtered")
+        console.kv(f"{ip} open", ", ".join(map(str, open_ports)) or "none")
+        console.kv(f"{ip} filtered", ", ".join(map(str, filtered)) or "none")
+
+    console.section("Pre-auth UDP/53 egress")
+    for entry in data["dns_leak"]["upstream"]:
+        if entry["reply"]:
+            console.fail(f"UDP/53 to {entry['server']} replies pre-auth -> DNS-tunnel egress possible")
+        else:
+            console.ok(f"UDP/53 to {entry['server']} blocked ({entry['error'] or 'no reply'})")
+    gw = data["dns_leak"]["gateway"]
+    if gw:
+        state = "answers recursively" if gw.get("reply") else f"no direct reply ({gw.get('error')})"
+        console.kv(f"Gateway {target.gateway} DNS", state)
+
+    console.section("ICMP")
+    icmp = data["icmp"]
+    if icmp["error"]:
+        console.warn(f"ping: {icmp['error']}")
+    else:
+        console.info(f"{icmp['host']} -> {'reachable' if icmp['reachable'] else 'unreachable'}")
