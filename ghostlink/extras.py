@@ -56,3 +56,62 @@ def route_metrics(dest: str = "1.1.1.1") -> dict:
     except (OSError, subprocess.TimeoutExpired) as exc:
         metrics["error"] = str(exc)
     return metrics
+
+
+def traceroute(dest: str = "1.1.1.1", max_hops: int = 12, timeout: float = 3.0) -> list[str]:
+    """Hop list toward `dest` ('*' for unreplied hops)."""
+    try:
+        proc = subprocess.run(
+            ["traceroute", "-n", "-w", str(int(timeout)), "-q", "1", "-m", str(max_hops), dest],
+            capture_output=True,
+            text=True,
+            timeout=max_hops * timeout + 10,
+        )
+    except FileNotFoundError:
+        return []
+    except subprocess.TimeoutExpired:
+        return []
+    hops: list[str] = []
+    for line in proc.stdout.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].isdigit():
+            hops.append(parts[1] if parts[1] != "*" else "*")
+    return hops
+
+
+def path_divergence(target: Target, hops: list[str]) -> dict:
+    """Compare the first egress hop to the expected gateway.
+
+    On a captive-portal network you often see the portal/AP itself as hop 1
+    (traffic is being intercepted in-path) or extra hops inside your own /24
+    (transparent bridge). Either is a strong interception tell.
+    """
+    result = {"expected_gateway": target.gateway, "first_hop": hops[0] if hops else None, "matches_gateway": None, "in_subnet_hops": []}
+    if not hops:
+        result["note"] = "no traceroute data"
+        return result
+    result["matches_gateway"] = hops[0] == target.gateway
+    subnet = ".".join(target.address.split(".")[:3])
+    result["in_subnet_hops"] = [h for h in hops if h != "*" and h.startswith(f"{subnet}.")]
+    return result
+
+
+def dhcp_hostname(iface: str) -> dict:
+    """Hostname/lease disclosure: what the DHCP layer leaks about this client."""
+    result: dict = {"iface": iface, "local_hostname": socket.gethostname(), "dhcp_hostname": None, "nmcli": None}
+    try:
+        proc = subprocess.run(
+            ["nmcli", "-t", "-f", "DHCP4.OPTION", "device", "show", iface],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                if "host_name" in line:
+                    result["nmcli"] = line
+                    result["dhcp_hostname"] = line.rsplit("=", 1)[-1]
+                    break
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        result["nmcli"] = "unavailable"
+    return result
